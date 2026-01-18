@@ -11,12 +11,48 @@ export interface ProjectInfo {
   path: string;
   type: ProjectType;
   gitUrl?: string;
+  description?: string;
   hasPackageJson: boolean;
   hasTsConfig: boolean;
   framework?: string;
 }
 
 export type ProjectType = 'nextjs' | 'react' | 'node' | 'unknown';
+
+interface GitHubRepoInfo {
+  description: string | null;
+  homepage: string | null;
+}
+
+async function fetchGitHubRepoInfo(gitUrl: string): Promise<GitHubRepoInfo | null> {
+  try {
+    // Extract owner/repo from GitHub URL
+    // Handles: https://github.com/owner/repo, https://github.com/owner/repo.git, git@github.com:owner/repo.git
+    const match = gitUrl.match(/github\.com[/:]([\w-]+)\/([\w.-]+?)(\.git)?$/);
+    if (!match) return null;
+
+    const [, owner, repo] = match;
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}`;
+
+    const response = await fetch(apiUrl, {
+      headers: {
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'RalphBlaster',
+      },
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    return {
+      description: data.description,
+      homepage: data.homepage,
+    };
+  } catch (error) {
+    console.error('Failed to fetch GitHub repo info:', error);
+    return null;
+  }
+}
 
 export async function detectProjectType(projectPath: string): Promise<ProjectInfo> {
   const info: ProjectInfo = {
@@ -133,6 +169,14 @@ export async function importFromGit(
   const info = await detectProjectType(clonePath);
   info.gitUrl = gitUrl;
 
+  // Fetch GitHub repo info (description, homepage)
+  const githubInfo = await fetchGitHubRepoInfo(gitUrl);
+  if (githubInfo) {
+    if (githubInfo.description) {
+      info.description = githubInfo.description;
+    }
+  }
+
   return info;
 }
 
@@ -143,6 +187,7 @@ export async function createProjectFromImport(
   const project = await prisma.project.create({
     data: {
       name: info.name,
+      description: info.description,
       codePath: info.path,
       gitUrl: info.gitUrl,
       color: color || '#3B82F6',
