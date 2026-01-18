@@ -10,13 +10,15 @@ datasource db {
 }
 
 model Project {
-  id        String   @id @default(cuid())
-  name      String
-  codePath  String   // Local path to codebase, e.g., "/Users/me/dev/myproject"
-  color     String   @default("#3B82F6") // Blue default
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  tickets   Ticket[]
+  id         String    @id @default(cuid())
+  name       String
+  codePath   String    // Local path to codebase, e.g., "/Users/me/dev/myproject"
+  gitUrl     String?   // Git repository URL if imported from git
+  color      String    @default("#3B82F6") // Blue default
+  importedAt DateTime? // When the project was imported
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  tickets    Ticket[]
 }
 
 model Ticket {
@@ -101,15 +103,19 @@ model HostingConfig {
 
 model SystemLog {
   id        String   @id @default(cuid())
-  level     String   // info, warn, error
+  level     String   // INFO, WARN, ERROR
+  category  String   // SYSTEM, RALPH, API, etc.
   message   String
-  metadata  String?  @db.Text
+  details   String?  @db.Text
   createdAt DateTime @default(now())
 }
 
 model ApiUsageLog {
   id           String   @id @default(cuid())
   type         String   // prd_generation, ralph_execution, etc.
+  ticketId     String?
+  ticketTitle  String?
+  projectId    String?
   tokensUsed   Int?
   cost         Float?
   model        String?

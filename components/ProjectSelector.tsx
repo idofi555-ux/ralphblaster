@@ -184,8 +184,9 @@ export default function ProjectSelector({ projects, selectedProjectId }: Project
 
       {isImportOpen && (
         <ImportProjectModal
+          isOpen={isImportOpen}
           onClose={() => setIsImportOpen(false)}
-          onImported={(project) => {
+          onImport={(project) => {
             setIsImportOpen(false);
             addToast(`Project "${project.name}" imported!`, 'success');
             router.push(`/?projectId=${project.id}`);
