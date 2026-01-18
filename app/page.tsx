@@ -1,7 +1,9 @@
 import { prisma } from '@/lib/prisma';
 import KanbanBoard from '@/components/KanbanBoard';
 import ProjectSelector from '@/components/ProjectSelector';
+import DevServerControls from '@/components/DevServerControls';
 import Link from 'next/link';
+import type { DevServerStatus } from '@/types';
 
 export default async function Home({
   searchParams,
@@ -42,7 +44,7 @@ export default async function Home({
       </header>
 
       {/* Project Info Bar */}
-      {selectedProject && (selectedProject.description || selectedProject.productionUrl) && (
+      {selectedProject && (
         <div className="bg-gray-50 border-b border-gray-200 px-4 py-2 sm:px-6">
           <div className="max-w-full mx-auto flex flex-wrap items-center gap-4 text-sm">
             {selectedProject.description && (
@@ -62,6 +64,16 @@ export default async function Home({
                 {selectedProject.productionUrl.replace(/^https?:\/\//, '')}
               </a>
             )}
+            {/* Separator if there's content before */}
+            {(selectedProject.description || selectedProject.productionUrl) && (
+              <span className="text-gray-300">|</span>
+            )}
+            {/* Dev Server Controls */}
+            <DevServerControls
+              projectId={selectedProject.id}
+              initialStatus={selectedProject.devServerStatus as DevServerStatus}
+              initialPort={selectedProject.devServerPort}
+            />
           </div>
         </div>
       )}

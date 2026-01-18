@@ -21,6 +21,18 @@ model Project {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   tickets       Ticket[]
+
+  // Dev server management
+  devServerPort   Int?           // Port for local dev server (e.g., 3001, 3002)
+  devServerStatus DevServerStatus @default(STOPPED)
+  devServerPid    String?        // Process ID for tracking/killing
+}
+
+enum DevServerStatus {
+  STOPPED
+  STARTING
+  RUNNING
+  ERROR
 }
 
 model Ticket {

@@ -10,6 +10,8 @@ export type Priority = 'LOW' | 'MEDIUM' | 'HIGH';
 
 export type RalphStatus = 'LAUNCHING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 
+export type DevServerStatus = 'STOPPED' | 'STARTING' | 'RUNNING' | 'ERROR';
+
 export interface Project {
   id: string;
   name: string;
@@ -22,6 +24,9 @@ export interface Project {
   createdAt: Date;
   updatedAt: Date;
   tickets?: Ticket[];
+  devServerPort: number | null;
+  devServerStatus: DevServerStatus;
+  devServerPid: string | null;
 }
 
 export interface Ticket {
