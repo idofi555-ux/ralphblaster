@@ -1,0 +1,46 @@
+export type TicketStatus =
+  | 'BACKLOG'
+  | 'UP_NEXT'
+  | 'IN_REVIEW'
+  | 'IN_PROGRESS'
+  | 'IN_TESTING'
+  | 'COMPLETED';
+
+export type Priority = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export type RalphStatus = 'LAUNCHING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+
+export interface Project {
+  id: string;
+  name: string;
+  codePath: string;
+  color: string;
+  createdAt: Date;
+  updatedAt: Date;
+  tickets?: Ticket[];
+}
+
+export interface Ticket {
+  id: string;
+  title: string;
+  description: string;
+  status: TicketStatus;
+  priority: Priority;
+  prdContent: string | null;
+  prdGeneratedAt: Date | null;
+  ralphInstancePath: string | null;
+  ralphStatus: RalphStatus | null;
+  ralphStartedAt: Date | null;
+  ralphCompletedAt: Date | null;
+  ralphLogs: string | null;
+  project?: Project;
+  projectId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Column {
+  id: TicketStatus;
+  title: string;
+  color: string;
+}

@@ -1,0 +1,68 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  codePath  String   // Local path to codebase, e.g., "/Users/me/dev/myproject"
+  color     String   @default("#3B82F6") // Blue default
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  tickets   Ticket[]
+}
+
+model Ticket {
+  id                String       @id @default(cuid())
+  title             String
+  description       String       @db.Text
+  status            TicketStatus @default(BACKLOG)
+  priority          Priority     @default(MEDIUM)
+
+  // PRD fields
+  prdContent        String?      @db.Text
+  prdGeneratedAt    DateTime?
+
+  // Ralph execution fields
+  ralphInstancePath String?
+  ralphStatus       RalphStatus?
+  ralphStartedAt    DateTime?
+  ralphCompletedAt  DateTime?
+  ralphLogs         String?      @db.Text
+
+  // Relations
+  project           Project      @relation(fields: [projectId], references: [id])
+  projectId         String
+
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+}
+
+enum TicketStatus {
+  BACKLOG
+  UP_NEXT
+  IN_REVIEW
+  IN_PROGRESS
+  IN_TESTING
+  COMPLETED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RalphStatus {
+  LAUNCHING
+  RUNNING
+  COMPLETED
+  FAILED
+}
