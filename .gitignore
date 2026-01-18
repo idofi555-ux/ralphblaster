@@ -44,3 +44,9 @@ next-env.d.ts
 
 # Ralph instances (runtime generated)
 /ralph-instances
+
+# Local dev files
+dev.db
+prisma/dev.db
+prisma/*.bak
+milenny.com/
