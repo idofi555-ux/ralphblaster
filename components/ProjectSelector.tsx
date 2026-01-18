@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useToast } from '@/contexts/ToastContext';
 import type { Project } from '@/types';
 import ProjectSettingsModal from './ProjectSettingsModal';
+import ImportProjectModal from './ImportProjectModal';
 
 interface ProjectSelectorProps {
   projects: Project[];
@@ -16,6 +17,7 @@ export default function ProjectSelector({ projects, selectedProjectId }: Project
   const { addToast } = useToast();
   const [isCreating, setIsCreating] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [newProject, setNewProject] = useState({ name: '', codePath: '', color: '#3B82F6' });
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
@@ -91,6 +93,13 @@ export default function ProjectSelector({ projects, selectedProjectId }: Project
           </button>
         )}
       </div>
+
+      <button
+        onClick={() => setIsImportOpen(true)}
+        className="px-3 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium whitespace-nowrap border border-gray-300"
+      >
+        Import
+      </button>
 
       <button
         onClick={() => setIsCreating(true)}
@@ -170,6 +179,18 @@ export default function ProjectSelector({ projects, selectedProjectId }: Project
           onClose={() => setIsSettingsOpen(false)}
           onUpdated={() => router.refresh()}
           onDeleted={() => router.refresh()}
+        />
+      )}
+
+      {isImportOpen && (
+        <ImportProjectModal
+          onClose={() => setIsImportOpen(false)}
+          onImported={(project) => {
+            setIsImportOpen(false);
+            addToast(`Project "${project.name}" imported!`, 'success');
+            router.push(`/?projectId=${project.id}`);
+            router.refresh();
+          }}
         />
       )}
     </div>
