@@ -1,7 +1,6 @@
-import { exec, spawn } from 'child_process';
-import { promisify } from 'util';
+import Anthropic from '@anthropic-ai/sdk';
 
-const execAsync = promisify(exec);
+const anthropic = new Anthropic();
 
 export class ClaudeError extends Error {
   constructor(
@@ -14,32 +13,42 @@ export class ClaudeError extends Error {
   }
 }
 
-async function checkClaudeInstalled(): Promise<boolean> {
-  try {
-    await execAsync('which claude');
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export async function generatePRD(
   ticket: { title: string; description: string },
   projectPath: string
 ): Promise<string> {
-  const isInstalled = await checkClaudeInstalled();
-  if (!isInstalled) {
+  if (!process.env.ANTHROPIC_API_KEY) {
     throw new ClaudeError(
-      'Claude CLI is not installed or not in PATH',
-      'NOT_INSTALLED',
-      'Install Claude CLI: npm install -g @anthropic-ai/claude-code'
+      'Anthropic API key not configured',
+      'NOT_CONFIGURED',
+      'Set ANTHROPIC_API_KEY environment variable'
     );
   }
 
   const prompt = buildPRDPrompt(ticket, projectPath);
 
   try {
-    const result = await runClaudeCommand(prompt);
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4096,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const content = message.content[0];
+    if (content.type !== 'text') {
+      throw new ClaudeError(
+        'Unexpected response type',
+        'INVALID_RESPONSE',
+        'Expected text response from Claude'
+      );
+    }
+
+    const result = content.text;
 
     if (!result || result.trim().length === 0) {
       throw new ClaudeError(
@@ -57,31 +66,7 @@ export async function generatePRD(
 
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    if (errorMessage.includes('ENOENT')) {
-      throw new ClaudeError(
-        'Claude CLI not found',
-        'NOT_FOUND',
-        'Claude CLI binary could not be executed'
-      );
-    }
-
-    if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
-      throw new ClaudeError(
-        'PRD generation timed out',
-        'TIMEOUT',
-        'The request took too long. Try simplifying the ticket description.'
-      );
-    }
-
-    if (errorMessage.includes('SIGTERM') || errorMessage.includes('SIGKILL')) {
-      throw new ClaudeError(
-        'PRD generation was interrupted',
-        'INTERRUPTED',
-        'The process was terminated unexpectedly'
-      );
-    }
-
-    if (errorMessage.includes('rate limit') || errorMessage.includes('429')) {
+    if (errorMessage.includes('rate_limit') || errorMessage.includes('429')) {
       throw new ClaudeError(
         'Rate limit exceeded',
         'RATE_LIMIT',
@@ -89,11 +74,19 @@ export async function generatePRD(
       );
     }
 
-    if (errorMessage.includes('API key') || errorMessage.includes('unauthorized') || errorMessage.includes('401')) {
+    if (errorMessage.includes('authentication') || errorMessage.includes('401') || errorMessage.includes('invalid_api_key')) {
       throw new ClaudeError(
         'Authentication failed',
         'AUTH_ERROR',
-        'Check that your Claude API key is configured correctly'
+        'Check that your ANTHROPIC_API_KEY is configured correctly'
+      );
+    }
+
+    if (errorMessage.includes('overloaded') || errorMessage.includes('529')) {
+      throw new ClaudeError(
+        'Service temporarily overloaded',
+        'OVERLOADED',
+        'Claude is experiencing high demand. Please try again in a moment.'
       );
     }
 
@@ -103,54 +96,6 @@ export async function generatePRD(
       errorMessage
     );
   }
-}
-
-async function runClaudeCommand(prompt: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const escapedPrompt = prompt
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"')
-      .replace(/\n/g, '\\n')
-      .replace(/\r/g, '\\r')
-      .replace(/\t/g, '\\t');
-
-    const child = spawn('claude', ['--print', escapedPrompt], {
-      shell: true,
-    });
-
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
-      child.kill('SIGTERM');
-    }, 300000);
-
-    child.stdout?.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    child.stderr?.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    child.on('error', (error) => {
-      clearTimeout(timeoutId);
-      reject(error);
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timeoutId);
-      if (timedOut) {
-        reject(new Error('timeout'));
-      } else if (code === 0) {
-        resolve(stdout);
-      } else {
-        reject(new Error(stderr || `Process exited with code ${code}`));
-      }
-    });
-  });
 }
 
 function buildPRDPrompt(
