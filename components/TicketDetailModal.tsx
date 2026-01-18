@@ -62,8 +62,9 @@ export default function TicketDetailModal({ ticket, onClose, onUpdated }: Ticket
         addToast('Ralph started! Watch the progress below.', 'success');
         onUpdated();
       } else {
-        const error = await res.json();
-        addToast(`Failed to start Ralph: ${error.error}`, 'error');
+        const data = await res.json();
+        const errorMsg = data.details || data.error || 'Failed to start Ralph';
+        addToast(errorMsg, 'error', 8000);
       }
     } catch (error) {
       console.error('Failed to start Ralph:', error);

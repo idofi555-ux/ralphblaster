@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { createRalphInstance, createWorktree, executeRalph, cleanupRalphInstance } from '@/lib/ralph';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
+
+async function isClaudeCliAvailable(): Promise<boolean> {
+  try {
+    await execAsync('which claude');
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(
   request: NextRequest,
@@ -8,6 +21,19 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
+
+    // Check if Claude CLI is available (required for Ralph execution)
+    const cliAvailable = await isClaudeCliAvailable();
+    if (!cliAvailable) {
+      return NextResponse.json(
+        {
+          error: 'Ralph requires Claude CLI',
+          details: 'Ralph execution requires running the app locally with Claude CLI installed. Run locally with: npm run dev'
+        },
+        { status: 400 }
+      );
+    }
+
     const ticket = await prisma.ticket.findUnique({
       where: { id },
       include: { project: true },
