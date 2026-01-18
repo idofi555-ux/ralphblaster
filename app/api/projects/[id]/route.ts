@@ -40,13 +40,15 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, codePath, color } = body;
+    const { name, description, codePath, productionUrl, color } = body;
 
     const project = await prisma.project.update({
       where: { id },
       data: {
         ...(name && { name }),
+        ...(description !== undefined && { description: description || null }),
         ...(codePath && { codePath }),
+        ...(productionUrl !== undefined && { productionUrl: productionUrl || null }),
         ...(color && { color }),
       },
     });

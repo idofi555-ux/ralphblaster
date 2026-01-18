@@ -24,7 +24,9 @@ export default function ProjectSettingsModal({
   useEscapeKey(onClose);
   const [formData, setFormData] = useState({
     name: project.name,
+    description: project.description || '',
     codePath: project.codePath,
+    productionUrl: project.productionUrl || '',
     color: project.color,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -110,6 +112,19 @@ export default function ProjectSettingsModal({
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
+                Description
+              </label>
+              <input
+                type="text"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Short project description"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Codebase Path
               </label>
               <input
@@ -118,6 +133,19 @@ export default function ProjectSettingsModal({
                 onChange={(e) => setFormData({ ...formData, codePath: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Production URL
+              </label>
+              <input
+                type="url"
+                value={formData.productionUrl}
+                onChange={(e) => setFormData({ ...formData, productionUrl: e.target.value })}
+                placeholder="https://example.com"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
 

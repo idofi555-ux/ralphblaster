@@ -10,15 +10,17 @@ datasource db {
 }
 
 model Project {
-  id         String    @id @default(cuid())
-  name       String
-  codePath   String    // Local path to codebase, e.g., "/Users/me/dev/myproject"
-  gitUrl     String?   // Git repository URL if imported from git
-  color      String    @default("#3B82F6") // Blue default
-  importedAt DateTime? // When the project was imported
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
-  tickets    Ticket[]
+  id            String    @id @default(cuid())
+  name          String
+  description   String?   // Short project description
+  codePath      String    // Local path to codebase, e.g., "/Users/me/dev/myproject"
+  gitUrl        String?   // Git repository URL if imported from git
+  productionUrl String?   // Production deployment URL
+  color         String    @default("#3B82F6") // Blue default
+  importedAt    DateTime? // When the project was imported
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  tickets       Ticket[]
 }
 
 model Ticket {

@@ -13,8 +13,12 @@ export type RalphStatus = 'LAUNCHING' | 'RUNNING' | 'COMPLETED' | 'FAILED';
 export interface Project {
   id: string;
   name: string;
+  description: string | null;
   codePath: string;
+  gitUrl: string | null;
+  productionUrl: string | null;
   color: string;
+  importedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   tickets?: Ticket[];
