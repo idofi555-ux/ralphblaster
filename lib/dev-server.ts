@@ -110,11 +110,16 @@ export async function startDevServer(projectId: string): Promise<{ port: number;
   }
 
   // Start the dev server
+  // Remove DATABASE_URL from parent env so child uses its own .env
+  const childEnv = { ...process.env };
+  delete childEnv.DATABASE_URL;
+  delete childEnv.ANTHROPIC_API_KEY; // Don't leak API keys either
+
   const devCmd = pm === 'npm' ? 'npm run dev' : `${pm} run dev`;
   const child = spawn(devCmd, [], {
     cwd: project.codePath,
     shell: true,
-    env: { ...process.env, PORT: String(port) },
+    env: { ...childEnv, PORT: String(port) },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   });
