@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import PRDViewer from './PRDViewer';
 import RalphProgress from './RalphProgress';
+import TestingPanel from './TestingPanel';
 import { useToast } from '@/contexts/ToastContext';
 import { useEscapeKey } from '@/hooks/useKeyboardShortcuts';
 import type { Ticket, Priority } from '@/types';
@@ -94,6 +95,21 @@ export default function TicketDetailModal({ ticket, onClose, onUpdated }: Ticket
       addToast('Failed to update ticket', 'error');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const savePRD = async (prdContent: string) => {
+    const res = await fetch(`/api/tickets/${ticket.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prdContent }),
+    });
+    if (res.ok) {
+      addToast('PRD updated successfully', 'success');
+      onUpdated();
+    } else {
+      addToast('Failed to update PRD', 'error');
+      throw new Error('Failed to update PRD');
     }
   };
 
@@ -250,6 +266,7 @@ export default function TicketDetailModal({ ticket, onClose, onUpdated }: Ticket
               <PRDViewer
                 content={ticket.prdContent}
                 onRegenerate={generatePRD}
+                onSave={savePRD}
                 isRegenerating={isGeneratingPRD}
               />
             ) : (
@@ -288,6 +305,25 @@ export default function TicketDetailModal({ ticket, onClose, onUpdated }: Ticket
                 </div>
               )}
             </div>
+          )}
+
+          {/* Testing Section - Shows when ticket is IN_TESTING */}
+          {ticket.status === 'IN_TESTING' && ticket.ralphInstancePath && (
+            <TestingPanel
+              ticket={ticket}
+              onMerged={() => {
+                addToast('Changes merged successfully!', 'success');
+                onUpdated();
+              }}
+              onRejected={() => {
+                addToast('Changes rejected', 'info');
+                onUpdated();
+              }}
+              onChangesRequested={() => {
+                addToast('Ralph is making the requested changes...', 'info');
+                onUpdated();
+              }}
+            />
           )}
         </div>
 

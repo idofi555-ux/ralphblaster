@@ -6,17 +6,43 @@ import ReactMarkdown from 'react-markdown';
 interface PRDViewerProps {
   content: string;
   onRegenerate?: () => void;
+  onSave?: (content: string) => Promise<void>;
   isRegenerating?: boolean;
 }
 
-export default function PRDViewer({ content, onRegenerate, isRegenerating }: PRDViewerProps) {
+export default function PRDViewer({ content, onRegenerate, onSave, isRegenerating }: PRDViewerProps) {
   const [isExpanded, setIsExpanded] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(content);
+  const [isSaving, setIsSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleEdit = () => {
+    setEditContent(content);
+    setIsEditing(true);
+    setIsExpanded(true);
+  };
+
+  const handleSave = async () => {
+    if (!onSave) return;
+    setIsSaving(true);
+    try {
+      await onSave(editContent);
+      setIsEditing(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditContent(content);
+    setIsEditing(false);
   };
 
   return (
@@ -36,22 +62,52 @@ export default function PRDViewer({ content, onRegenerate, isRegenerating }: PRD
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
           PRD Content
+          {isEditing && <span className="text-orange-600 text-xs">(editing)</span>}
         </button>
         <div className="flex items-center gap-2">
-          <button
-            onClick={handleCopy}
-            className="px-3 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            {copied ? 'Copied!' : 'Copy'}
-          </button>
-          {onRegenerate && (
-            <button
-              onClick={onRegenerate}
-              disabled={isRegenerating}
-              className="px-3 py-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
-            >
-              {isRegenerating ? 'Regenerating...' : 'Regenerate'}
-            </button>
+          {isEditing ? (
+            <>
+              <button
+                onClick={handleCancel}
+                disabled={isSaving}
+                className="px-3 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="px-3 py-1 text-xs bg-green-500 text-white hover:bg-green-600 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {isSaving ? 'Saving...' : 'Save'}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={handleCopy}
+                className="px-3 py-1 text-xs text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                {copied ? 'Copied!' : 'Copy'}
+              </button>
+              {onSave && (
+                <button
+                  onClick={handleEdit}
+                  className="px-3 py-1 text-xs text-orange-600 hover:text-orange-700 hover:bg-orange-50 rounded-lg transition-colors"
+                >
+                  Edit
+                </button>
+              )}
+              {onRegenerate && (
+                <button
+                  onClick={onRegenerate}
+                  disabled={isRegenerating}
+                  className="px-3 py-1 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isRegenerating ? 'Regenerating...' : 'Regenerate'}
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -59,6 +115,14 @@ export default function PRDViewer({ content, onRegenerate, isRegenerating }: PRD
       {/* Content */}
       {isExpanded && (
         <div className="p-4 bg-white max-h-[400px] overflow-y-auto">
+          {isEditing ? (
+            <textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              className="w-full h-80 p-3 font-mono text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none"
+              placeholder="Edit your PRD content here (Markdown supported)..."
+            />
+          ) : (
           <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-p:text-gray-600 prose-li:text-gray-600 prose-strong:text-gray-700">
             <ReactMarkdown
               components={{
@@ -103,6 +167,7 @@ export default function PRDViewer({ content, onRegenerate, isRegenerating }: PRD
               {content}
             </ReactMarkdown>
           </div>
+          )}
         </div>
       )}
     </div>

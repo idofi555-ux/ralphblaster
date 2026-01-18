@@ -206,6 +206,123 @@ export function cancelRalph(ticketId: string): boolean {
   return false;
 }
 
+export async function executeRalphChanges(
+  instance: RalphInstance,
+  projectPath: string,
+  ticketId: string,
+  changeRequest: string,
+  prdContent: string,
+  onProgress: (log: string) => void
+): Promise<void> {
+  // Determine working directory (worktree or project)
+  const workDir = instance.worktreePath || projectPath;
+
+  // Write the change request to the instance directory
+  await fs.writeFile(
+    path.join(instance.instancePath, 'change-request.md'),
+    `# Change Request\n\n${changeRequest}\n\n---\n\n## Original PRD\n\n${prdContent}`
+  );
+
+  await updateProgress(instance.instancePath, {
+    status: 'RUNNING',
+    phase: 'Changes',
+    message: 'Claude is implementing requested changes...',
+    timestamp: new Date().toISOString(),
+    logs: [`[${new Date().toISOString()}] Received change request: ${changeRequest.slice(0, 100)}...`],
+  });
+
+  return new Promise((resolve, reject) => {
+    const prompt = `You are Ralph, an autonomous coding agent. The user has tested your implementation and is requesting changes.
+
+CHANGE REQUEST:
+${changeRequest}
+
+ORIGINAL PRD: ${instance.instancePath}/source-prd.md
+Working Directory: ${workDir}
+Progress Log: ${instance.instancePath}/progress.md
+
+Instructions:
+1. Review the change request carefully
+2. Look at the current implementation to understand what was built
+3. Make the requested changes precisely
+4. Test your changes to ensure they work
+5. Commit with a descriptive message about the changes
+
+IMPORTANT:
+- Focus only on the requested changes
+- Don't refactor or change things that weren't requested
+- Be precise and targeted with your modifications
+- Update progress.md with what changes you made
+
+Begin implementing the requested changes now.`;
+
+    const ralph = spawn(
+      'claude',
+      ['--dangerously-skip-permissions', '--print', prompt],
+      {
+        cwd: workDir,
+        shell: true,
+        env: { ...process.env, FORCE_COLOR: '0' },
+      }
+    );
+
+    // Store for potential cancellation
+    activeProcesses.set(ticketId, { kill: () => ralph.kill('SIGTERM') });
+
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
+
+    ralph.stdout.on('data', async (data) => {
+      const chunk = data.toString();
+      stdoutBuffer += chunk;
+      onProgress(chunk);
+      await appendLog(instance.instancePath, chunk.trim());
+    });
+
+    ralph.stderr.on('data', async (data) => {
+      const chunk = data.toString();
+      stderrBuffer += chunk;
+      onProgress(`[stderr] ${chunk}`);
+    });
+
+    ralph.on('close', async (code) => {
+      activeProcesses.delete(ticketId);
+
+      if (code === 0) {
+        await updateProgress(instance.instancePath, {
+          status: 'COMPLETED',
+          phase: 'Done',
+          message: 'Changes implemented successfully!',
+          timestamp: new Date().toISOString(),
+          logs: [],
+        });
+        resolve();
+      } else {
+        await updateProgress(instance.instancePath, {
+          status: 'FAILED',
+          phase: 'Error',
+          message: `Ralph exited with code ${code}`,
+          timestamp: new Date().toISOString(),
+          logs: [],
+        });
+        reject(new Error(`Ralph exited with code ${code}`));
+      }
+    });
+
+    ralph.on('error', async (error) => {
+      activeProcesses.delete(ticketId);
+      await updateProgress(instance.instancePath, {
+        status: 'FAILED',
+        phase: 'Error',
+        message: `Failed to start Ralph: ${error.message}`,
+        timestamp: new Date().toISOString(),
+        logs: [],
+      });
+      reject(new Error(`Failed to start Ralph: ${error.message}`));
+    });
+  });
+}
+
 export async function getProgress(instancePath: string): Promise<RalphProgress | null> {
   try {
     const progressFile = path.join(instancePath, 'progress.json');
