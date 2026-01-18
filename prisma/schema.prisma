@@ -66,3 +66,35 @@ enum RalphStatus {
   COMPLETED
   FAILED
 }
+
+model Settings {
+  id                  String   @id @default("global")
+  claudeModel         String   @default("claude-sonnet-4-5-20250514")
+  maxTokens           Int      @default(4096)
+  claudeCliPath       String   @default("/usr/local/bin/claude")
+  logRetentionCount   Int      @default(100)
+  statusPollInterval  Int      @default(1500)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model SecurityTest {
+  id          String   @id @default(cuid())
+  name        String
+  command     String
+  description String?
+  enabled     Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model HostingConfig {
+  id               String   @id @default("global")
+  provider         String   @default("railway")
+  cliPath          String?
+  projectToken     String?
+  autoDeployBranch String?  @default("main")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
