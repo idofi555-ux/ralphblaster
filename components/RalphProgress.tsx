@@ -6,6 +6,8 @@ import type { RalphStatus } from '@/types';
 interface RalphProgressProps {
   ticketId: string;
   status: RalphStatus;
+  onCancel?: () => void;
+  onRestart?: () => void;
 }
 
 interface ProgressData {
@@ -16,6 +18,11 @@ interface ProgressData {
   fullLogs?: string;
   duration?: number;
   error?: string;
+}
+
+// Rough token estimation (1 token ≈ 4 chars for English)
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
 }
 
 const statusConfig = {
@@ -59,13 +66,14 @@ function formatDuration(seconds: number): string {
   return `${hours}h ${remainMins}m`;
 }
 
-export default function RalphProgress({ ticketId, status: initialStatus }: RalphProgressProps) {
+export default function RalphProgress({ ticketId, status: initialStatus, onCancel, onRestart }: RalphProgressProps) {
   const [status, setStatus] = useState<RalphStatus>(initialStatus);
   const [logs, setLogs] = useState<string>('');
   const [phase, setPhase] = useState<string>('');
   const [message, setMessage] = useState<string>('');
   const [duration, setDuration] = useState<number>(0);
   const [isExpanded, setIsExpanded] = useState(true);
+  const [estimatedTokens, setEstimatedTokens] = useState<number>(0);
   const logsEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new logs arrive
@@ -104,11 +112,16 @@ export default function RalphProgress({ ticketId, status: initialStatus }: Ralph
             setDuration(data.duration);
           }
 
-          // Handle logs
+          // Handle logs and estimate tokens
           if (data.fullLogs) {
             setLogs(data.fullLogs);
+            setEstimatedTokens(estimateTokens(data.fullLogs));
           } else if (data.logs) {
-            setLogs((prev) => prev + data.logs);
+            setLogs((prev) => {
+              const newLogs = prev + data.logs;
+              setEstimatedTokens(estimateTokens(newLogs));
+              return newLogs;
+            });
           }
 
           // Close connection if complete
@@ -157,10 +170,27 @@ export default function RalphProgress({ ticketId, status: initialStatus }: Ralph
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Token estimate */}
+          {estimatedTokens > 0 && (
+            <span className="text-xs text-gray-500 bg-white/50 px-2 py-1 rounded">
+              ~{estimatedTokens.toLocaleString()} tokens
+            </span>
+          )}
+
           {duration > 0 && (
             <span className="text-sm text-gray-500">
               {formatDuration(duration)}
             </span>
+          )}
+
+          {/* Cancel button for active processes */}
+          {isActive && onCancel && (
+            <button
+              onClick={onCancel}
+              className="px-2 py-1 text-xs text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded transition-colors"
+            >
+              Cancel
+            </button>
           )}
 
           <button
@@ -178,6 +208,18 @@ export default function RalphProgress({ ticketId, status: initialStatus }: Ralph
           </button>
         </div>
       </div>
+
+      {/* Progress bar for active status */}
+      {isActive && (
+        <div className="px-4 pb-2">
+          <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${config.pulseColor} animate-progress-slide`}
+              style={{ width: '30%' }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Message */}
       {message && isExpanded && (
@@ -206,24 +248,40 @@ export default function RalphProgress({ ticketId, status: initialStatus }: Ralph
 
       {/* Footer messages */}
       {status === 'COMPLETED' && (
-        <div className="px-4 py-3 bg-green-100 border-t border-green-200">
+        <div className="px-4 py-3 bg-green-100 border-t border-green-200 flex items-center justify-between">
           <p className="text-green-700 text-sm flex items-center gap-2">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Ralph has completed the implementation. The ticket has moved to &quot;In Testing&quot;.
           </p>
+          {onRestart && (
+            <button
+              onClick={onRestart}
+              className="px-3 py-1.5 text-xs text-green-700 hover:text-green-800 bg-green-200 hover:bg-green-300 rounded transition-colors font-medium"
+            >
+              Re-run Ralph
+            </button>
+          )}
         </div>
       )}
 
       {status === 'FAILED' && (
-        <div className="px-4 py-3 bg-red-100 border-t border-red-200">
+        <div className="px-4 py-3 bg-red-100 border-t border-red-200 flex items-center justify-between">
           <p className="text-red-700 text-sm flex items-center gap-2">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Ralph encountered an error. Check the logs above for details.
           </p>
+          {onRestart && (
+            <button
+              onClick={onRestart}
+              className="px-3 py-1.5 text-xs text-red-700 hover:text-red-800 bg-red-200 hover:bg-red-300 rounded transition-colors font-medium"
+            >
+              Try Again
+            </button>
+          )}
         </div>
       )}
     </div>

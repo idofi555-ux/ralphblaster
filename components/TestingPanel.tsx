@@ -3,6 +3,21 @@
 import { useState, useEffect } from 'react';
 import type { Ticket } from '@/types';
 
+interface RalphReport {
+  success: boolean;
+  durationMs: number;
+  totalCostUsd: number;
+  numTurns: number;
+  model: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+  };
+  summary: string;
+}
+
 interface TestingPanelProps {
   ticket: Ticket;
   onMerged: () => void;
@@ -20,6 +35,10 @@ export default function TestingPanel({ ticket, onMerged, onRejected, onChangesRe
   const [showChangesModal, setShowChangesModal] = useState(false);
   const [changeRequest, setChangeRequest] = useState('');
   const [isSubmittingChanges, setIsSubmittingChanges] = useState(false);
+  const [report, setReport] = useState<RalphReport | null>(null);
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const [deploySuccess, setDeploySuccess] = useState<string | null>(null);
 
   // Extract branch name from instance path
   const instanceName = ticket.ralphInstancePath?.split('/').pop() || '';
@@ -33,6 +52,22 @@ export default function TestingPanel({ ticket, onMerged, onRejected, onChangesRe
     return () => {
       fetch(`/api/tickets/${ticket.id}/test-server`, { method: 'DELETE' }).catch(() => {});
     };
+  }, [ticket.id]);
+
+  // Fetch Ralph report
+  useEffect(() => {
+    const fetchReport = async () => {
+      try {
+        const res = await fetch(`/api/tickets/${ticket.id}/report`);
+        if (res.ok) {
+          const data = await res.json();
+          setReport(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch report:', error);
+      }
+    };
+    fetchReport();
   }, [ticket.id]);
 
   const startTestServer = async () => {
@@ -137,6 +172,38 @@ export default function TestingPanel({ ticket, onMerged, onRejected, onChangesRe
     }
   };
 
+  const handleDeploy = async () => {
+    setIsDeploying(true);
+    setDeployError(null);
+    setDeploySuccess(null);
+    try {
+      const res = await fetch('/api/hosting/deploy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticketId: ticket.id }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setDeploySuccess(data.message || 'Deployment started successfully');
+      } else {
+        setDeployError(data.details || data.error || 'Deployment failed');
+      }
+    } catch (error) {
+      console.error('Deploy error:', error);
+      setDeployError('Network error - could not deploy');
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
+  const formatDuration = (ms: number): string => {
+    const seconds = Math.floor(ms / 1000);
+    if (seconds < 60) return `${seconds}s`;
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}m ${secs}s`;
+  };
+
   return (
     <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
       <h3 className="font-semibold text-orange-800 mb-3 flex items-center gap-2">
@@ -145,6 +212,54 @@ export default function TestingPanel({ ticket, onMerged, onRejected, onChangesRe
         </svg>
         Testing Required
       </h3>
+
+      {/* Ralph Report Card */}
+      {report && (
+        <div className="mb-4 bg-white rounded-lg p-4 border border-gray-200">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-gray-700">Execution Report</h4>
+            <span className={`px-2 py-1 rounded text-xs font-medium ${report.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              {report.success ? 'Success' : 'Failed'}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div className="bg-gray-50 rounded p-2">
+              <div className="text-xs text-gray-500">Model</div>
+              <div className="font-medium text-gray-800 truncate" title={report.model}>
+                {report.model.includes('opus') ? 'Opus 4.5' : report.model.includes('sonnet') ? 'Sonnet 4' : report.model}
+              </div>
+            </div>
+            <div className="bg-gray-50 rounded p-2">
+              <div className="text-xs text-gray-500">Duration</div>
+              <div className="font-medium text-gray-800">{formatDuration(report.durationMs)}</div>
+            </div>
+            <div className="bg-gray-50 rounded p-2">
+              <div className="text-xs text-gray-500">Cost</div>
+              <div className="font-medium text-gray-800">${report.totalCostUsd.toFixed(4)}</div>
+            </div>
+            <div className="bg-gray-50 rounded p-2">
+              <div className="text-xs text-gray-500">Turns</div>
+              <div className="font-medium text-gray-800">{report.numTurns}</div>
+            </div>
+          </div>
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <div className="text-xs text-gray-500 mb-1">Token Usage</div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                Input: {report.usage.inputTokens.toLocaleString()}
+              </span>
+              <span className="bg-green-50 text-green-700 px-2 py-1 rounded">
+                Output: {report.usage.outputTokens.toLocaleString()}
+              </span>
+              {report.usage.cacheReadTokens > 0 && (
+                <span className="bg-purple-50 text-purple-700 px-2 py-1 rounded">
+                  Cache Read: {report.usage.cacheReadTokens.toLocaleString()}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Test URL - Primary focus */}
       <div className="mb-4 bg-white rounded-lg p-4 border-2 border-orange-300">
@@ -258,6 +373,45 @@ export default function TestingPanel({ ticket, onMerged, onRejected, onChangesRe
         >
           {isRejecting ? 'Rejecting...' : 'Reject'}
         </button>
+      </div>
+
+      {/* Deploy Section */}
+      <div className="mt-4 pt-4 border-t border-orange-200">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="text-sm font-medium text-gray-700">Deploy to Production</h4>
+            <p className="text-xs text-gray-500">After testing, deploy the changes</p>
+          </div>
+          <button
+            onClick={handleDeploy}
+            disabled={isDeploying || isMerging}
+            className="px-4 py-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 disabled:opacity-50 transition-colors text-sm font-medium flex items-center gap-2"
+          >
+            {isDeploying ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                Deploying...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                </svg>
+                Deploy
+              </>
+            )}
+          </button>
+        </div>
+        {deployError && (
+          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+            {deployError}
+          </div>
+        )}
+        {deploySuccess && (
+          <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-sm text-green-700">
+            {deploySuccess}
+          </div>
+        )}
       </div>
 
       {/* Request Changes Modal */}

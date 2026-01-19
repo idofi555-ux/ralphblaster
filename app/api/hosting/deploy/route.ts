@@ -1,23 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getHostingConfig, deployProject } from '@/lib/hosting';
 import { logSystem } from '@/lib/logging';
+import { prisma } from '@/lib/prisma';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    if (!body.projectPath) {
+    let projectPath = body.projectPath;
+
+    // If ticketId is provided, get the project path from the ticket
+    if (body.ticketId && !projectPath) {
+      const ticket = await prisma.ticket.findUnique({
+        where: { id: body.ticketId },
+        include: { project: true },
+      });
+      if (!ticket) {
+        return NextResponse.json(
+          { error: 'Ticket not found' },
+          { status: 404 }
+        );
+      }
+      projectPath = ticket.project.codePath;
+    }
+
+    if (!projectPath) {
       return NextResponse.json(
-        { error: 'Project path is required' },
+        { error: 'Project path or ticket ID is required' },
         { status: 400 }
       );
     }
 
     const config = await getHostingConfig();
 
-    await logSystem('INFO', 'SYSTEM', `Deploying project: ${body.projectPath} to ${config.provider}`);
+    await logSystem('INFO', 'SYSTEM', `Deploying project: ${projectPath} to ${config.provider}`);
 
-    const result = await deployProject(body.projectPath, config);
+    const result = await deployProject(projectPath, config);
 
     if (result.success) {
       await logSystem('INFO', 'SYSTEM', `Deployment successful${result.url ? `: ${result.url}` : ''}`);

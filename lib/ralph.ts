@@ -21,6 +21,21 @@ export interface RalphProgress {
   logs: string[];
 }
 
+export interface RalphReport {
+  success: boolean;
+  durationMs: number;
+  totalCostUsd: number;
+  numTurns: number;
+  model: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+  };
+  summary: string;
+}
+
 // Store active Ralph processes for cancellation
 const activeProcesses = new Map<string, { kill: () => void }>();
 
@@ -94,8 +109,9 @@ export async function executeRalph(
   instance: RalphInstance,
   projectPath: string,
   ticketId: string,
-  onProgress: (log: string) => void
-): Promise<void> {
+  onProgress: (log: string) => void,
+  model: string = 'claude-sonnet-4-5-20250514'
+): Promise<RalphReport> {
   // Determine working directory (worktree or project)
   const workDir = instance.worktreePath || projectPath;
 
@@ -131,37 +147,172 @@ Begin implementation now.`;
 
     const ralph = spawn(
       'claude',
-      ['--dangerously-skip-permissions', '--print', prompt],
+      [
+        '--dangerously-skip-permissions',
+        '-p', '-',  // Read prompt from stdin
+        '--output-format', 'stream-json',
+        '--verbose',  // Required for stream-json
+        '--model', model,
+      ],
       {
         cwd: workDir,
-        shell: true,
+        shell: false,
         env: { ...process.env, FORCE_COLOR: '0' },
+        stdio: ['pipe', 'pipe', 'pipe'],
       }
     );
+
+    // Send prompt via stdin
+    ralph.stdin.write(prompt);
+    ralph.stdin.end();
 
     // Store for potential cancellation
     activeProcesses.set(ticketId, { kill: () => ralph.kill('SIGTERM') });
 
     let stdoutBuffer = '';
     let stderrBuffer = '';
+    let lineBuffer = '';
+    let report: RalphReport | null = null;
+
+    // Create debug log file for raw output
+    const debugLogPath = path.join(instance.instancePath, 'debug.log');
+    const appendDebugLog = async (msg: string) => {
+      try {
+        await fs.appendFile(debugLogPath, `[${new Date().toISOString()}] ${msg}\n`);
+      } catch (e) {
+        console.error('Failed to write debug log:', e);
+      }
+    };
+
+    appendDebugLog('Ralph process started');
+    appendDebugLog(`Working directory: ${workDir}`);
 
     ralph.stdout.on('data', async (data) => {
       const chunk = data.toString();
       stdoutBuffer += chunk;
-      onProgress(chunk);
-      await appendLog(instance.instancePath, chunk.trim());
+      lineBuffer += chunk;
+
+      // Log raw output for debugging
+      appendDebugLog(`[stdout] ${chunk}`);
+
+      // Process complete lines (stream-json outputs newline-delimited JSON)
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        try {
+          const event = JSON.parse(line);
+          let logMessage = '';
+
+          // Parse different event types
+          if (event.type === 'system') {
+            logMessage = `🚀 Session started (model: ${event.model || 'unknown'})`;
+          } else if (event.type === 'assistant' && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === 'tool_use') {
+                const toolName = block.name || 'Unknown';
+                const input = block.input || {};
+
+                // Create readable progress message
+                if (toolName === 'Edit') {
+                  logMessage = `📝 Editing: ${input.file_path?.split('/').pop() || 'file'}`;
+                } else if (toolName === 'Write') {
+                  logMessage = `✍️ Writing: ${input.file_path?.split('/').pop() || 'file'}`;
+                } else if (toolName === 'Read') {
+                  logMessage = `📖 Reading: ${input.file_path?.split('/').pop() || 'file'}`;
+                } else if (toolName === 'Bash') {
+                  const cmd = input.command?.slice(0, 60) || 'command';
+                  logMessage = `🖥️ Running: ${cmd}${input.command?.length > 60 ? '...' : ''}`;
+                } else if (toolName === 'Glob' || toolName === 'Grep') {
+                  logMessage = `🔍 Searching: ${input.pattern || 'pattern'}`;
+                } else if (toolName === 'TodoWrite') {
+                  logMessage = `📋 Updating task list`;
+                } else {
+                  logMessage = `🔧 ${toolName}`;
+                }
+              } else if (block.type === 'text' && block.text) {
+                // Claude's thinking/response text
+                const text = block.text.slice(0, 100);
+                logMessage = `💭 ${text}${block.text.length > 100 ? '...' : ''}`;
+              }
+            }
+          } else if (event.type === 'result') {
+            const cost = event.total_cost_usd ? `$${event.total_cost_usd.toFixed(4)}` : '';
+            const tokens = event.usage ? `${event.usage.input_tokens + event.usage.output_tokens} tokens` : '';
+            logMessage = `✅ Completed ${cost} ${tokens}`.trim();
+
+            // Build report from result event
+            report = {
+              success: !event.is_error,
+              durationMs: event.duration_ms || 0,
+              totalCostUsd: event.total_cost_usd || 0,
+              numTurns: event.num_turns || 0,
+              model: Object.keys(event.modelUsage || {})[0] || 'unknown',
+              usage: {
+                inputTokens: event.usage?.input_tokens || 0,
+                outputTokens: event.usage?.output_tokens || 0,
+                cacheReadTokens: event.usage?.cache_read_input_tokens || 0,
+                cacheCreationTokens: event.usage?.cache_creation_input_tokens || 0,
+              },
+              summary: event.result || '',
+            };
+          }
+
+          if (logMessage) {
+            onProgress(logMessage + '\n');
+            await appendLog(instance.instancePath, logMessage);
+          }
+        } catch {
+          // Not JSON, just log raw output
+          if (line.trim()) {
+            onProgress(line + '\n');
+            await appendLog(instance.instancePath, line.trim());
+          }
+        }
+      }
     });
 
     ralph.stderr.on('data', async (data) => {
       const chunk = data.toString();
       stderrBuffer += chunk;
+      appendDebugLog(`[stderr] ${chunk}`);
+      appendLog(instance.instancePath, `[error] ${chunk.trim()}`);
       onProgress(`[stderr] ${chunk}`);
     });
 
     ralph.on('close', async (code) => {
       activeProcesses.delete(ticketId);
 
-      if (code === 0) {
+      if (code === 0 && report) {
+        // Write report to file
+        const reportPath = path.join(instance.instancePath, 'report.json');
+        await fs.writeFile(reportPath, JSON.stringify(report, null, 2));
+
+        // Write human-readable report
+        const reportMdPath = path.join(instance.instancePath, 'report.md');
+        const reportMd = `# Ralph Execution Report
+
+## Summary
+- **Status**: ${report.success ? '✅ Success' : '❌ Failed'}
+- **Model**: ${report.model}
+- **Duration**: ${Math.round(report.durationMs / 1000)}s
+- **Cost**: $${report.totalCostUsd.toFixed(4)}
+- **Turns**: ${report.numTurns}
+
+## Token Usage
+- **Input**: ${report.usage.inputTokens.toLocaleString()}
+- **Output**: ${report.usage.outputTokens.toLocaleString()}
+- **Cache Read**: ${report.usage.cacheReadTokens.toLocaleString()}
+- **Cache Creation**: ${report.usage.cacheCreationTokens.toLocaleString()}
+- **Total**: ${(report.usage.inputTokens + report.usage.outputTokens).toLocaleString()}
+
+## Result
+${report.summary}
+`;
+        await fs.writeFile(reportMdPath, reportMd);
+
         await updateProgress(instance.instancePath, {
           status: 'COMPLETED',
           phase: 'Done',
@@ -169,7 +320,7 @@ Begin implementation now.`;
           timestamp: new Date().toISOString(),
           logs: [],
         });
-        resolve();
+        resolve(report);
       } else {
         await updateProgress(instance.instancePath, {
           status: 'FAILED',
@@ -212,8 +363,9 @@ export async function executeRalphChanges(
   ticketId: string,
   changeRequest: string,
   prdContent: string,
-  onProgress: (log: string) => void
-): Promise<void> {
+  onProgress: (log: string) => void,
+  model: string = 'claude-sonnet-4-5-20250514'
+): Promise<RalphReport> {
   // Determine working directory (worktree or project)
   const workDir = instance.worktreePath || projectPath;
 
@@ -258,37 +410,172 @@ Begin implementing the requested changes now.`;
 
     const ralph = spawn(
       'claude',
-      ['--dangerously-skip-permissions', '--print', prompt],
+      [
+        '--dangerously-skip-permissions',
+        '-p', '-',  // Read prompt from stdin
+        '--output-format', 'stream-json',
+        '--verbose',  // Required for stream-json
+        '--model', model,
+      ],
       {
         cwd: workDir,
-        shell: true,
+        shell: false,
         env: { ...process.env, FORCE_COLOR: '0' },
+        stdio: ['pipe', 'pipe', 'pipe'],
       }
     );
+
+    // Send prompt via stdin
+    ralph.stdin.write(prompt);
+    ralph.stdin.end();
 
     // Store for potential cancellation
     activeProcesses.set(ticketId, { kill: () => ralph.kill('SIGTERM') });
 
     let stdoutBuffer = '';
     let stderrBuffer = '';
+    let report: RalphReport | null = null;
+    let lineBuffer = '';
+
+    // Create debug log file for raw output
+    const debugLogPath = path.join(instance.instancePath, 'debug.log');
+    const appendDebugLog = async (msg: string) => {
+      try {
+        await fs.appendFile(debugLogPath, `[${new Date().toISOString()}] ${msg}\n`);
+      } catch (e) {
+        console.error('Failed to write debug log:', e);
+      }
+    };
+
+    appendDebugLog('Ralph process started');
+    appendDebugLog(`Working directory: ${workDir}`);
 
     ralph.stdout.on('data', async (data) => {
       const chunk = data.toString();
       stdoutBuffer += chunk;
-      onProgress(chunk);
-      await appendLog(instance.instancePath, chunk.trim());
+      lineBuffer += chunk;
+
+      // Log raw output for debugging
+      appendDebugLog(`[stdout] ${chunk}`);
+
+      // Process complete lines (stream-json outputs newline-delimited JSON)
+      const lines = lineBuffer.split('\n');
+      lineBuffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+
+        try {
+          const event = JSON.parse(line);
+          let logMessage = '';
+
+          // Parse different event types
+          if (event.type === 'system') {
+            logMessage = `🚀 Session started (model: ${event.model || 'unknown'})`;
+          } else if (event.type === 'assistant' && event.message?.content) {
+            for (const block of event.message.content) {
+              if (block.type === 'tool_use') {
+                const toolName = block.name || 'Unknown';
+                const input = block.input || {};
+
+                // Create readable progress message
+                if (toolName === 'Edit') {
+                  logMessage = `📝 Editing: ${input.file_path?.split('/').pop() || 'file'}`;
+                } else if (toolName === 'Write') {
+                  logMessage = `✍️ Writing: ${input.file_path?.split('/').pop() || 'file'}`;
+                } else if (toolName === 'Read') {
+                  logMessage = `📖 Reading: ${input.file_path?.split('/').pop() || 'file'}`;
+                } else if (toolName === 'Bash') {
+                  const cmd = input.command?.slice(0, 60) || 'command';
+                  logMessage = `🖥️ Running: ${cmd}${input.command?.length > 60 ? '...' : ''}`;
+                } else if (toolName === 'Glob' || toolName === 'Grep') {
+                  logMessage = `🔍 Searching: ${input.pattern || 'pattern'}`;
+                } else if (toolName === 'TodoWrite') {
+                  logMessage = `📋 Updating task list`;
+                } else {
+                  logMessage = `🔧 ${toolName}`;
+                }
+              } else if (block.type === 'text' && block.text) {
+                // Claude's thinking/response text
+                const text = block.text.slice(0, 100);
+                logMessage = `💭 ${text}${block.text.length > 100 ? '...' : ''}`;
+              }
+            }
+          } else if (event.type === 'result') {
+            const cost = event.total_cost_usd ? `$${event.total_cost_usd.toFixed(4)}` : '';
+            const tokens = event.usage ? `${event.usage.input_tokens + event.usage.output_tokens} tokens` : '';
+            logMessage = `✅ Completed ${cost} ${tokens}`.trim();
+
+            // Build report from result event
+            report = {
+              success: !event.is_error,
+              durationMs: event.duration_ms || 0,
+              totalCostUsd: event.total_cost_usd || 0,
+              numTurns: event.num_turns || 0,
+              model: Object.keys(event.modelUsage || {})[0] || 'unknown',
+              usage: {
+                inputTokens: event.usage?.input_tokens || 0,
+                outputTokens: event.usage?.output_tokens || 0,
+                cacheReadTokens: event.usage?.cache_read_input_tokens || 0,
+                cacheCreationTokens: event.usage?.cache_creation_input_tokens || 0,
+              },
+              summary: event.result || '',
+            };
+          }
+
+          if (logMessage) {
+            onProgress(logMessage + '\n');
+            await appendLog(instance.instancePath, logMessage);
+          }
+        } catch {
+          // Not JSON, just log raw output
+          if (line.trim()) {
+            onProgress(line + '\n');
+            await appendLog(instance.instancePath, line.trim());
+          }
+        }
+      }
     });
 
     ralph.stderr.on('data', async (data) => {
       const chunk = data.toString();
       stderrBuffer += chunk;
+      appendDebugLog(`[stderr] ${chunk}`);
+      appendLog(instance.instancePath, `[error] ${chunk.trim()}`);
       onProgress(`[stderr] ${chunk}`);
     });
 
     ralph.on('close', async (code) => {
       activeProcesses.delete(ticketId);
 
-      if (code === 0) {
+      if (code === 0 && report) {
+        // Write report to file
+        const reportPath = path.join(instance.instancePath, 'report.json');
+        await fs.writeFile(reportPath, JSON.stringify(report, null, 2));
+
+        // Write human-readable report
+        const reportMdPath = path.join(instance.instancePath, 'report.md');
+        const reportMd = `# Ralph Changes Report
+
+## Summary
+- **Status**: ${report.success ? '✅ Success' : '❌ Failed'}
+- **Model**: ${report.model}
+- **Duration**: ${Math.round(report.durationMs / 1000)}s
+- **Cost**: $${report.totalCostUsd.toFixed(4)}
+- **Turns**: ${report.numTurns}
+
+## Token Usage
+- **Input**: ${report.usage.inputTokens.toLocaleString()}
+- **Output**: ${report.usage.outputTokens.toLocaleString()}
+- **Cache Read**: ${report.usage.cacheReadTokens.toLocaleString()}
+- **Cache Creation**: ${report.usage.cacheCreationTokens.toLocaleString()}
+- **Total**: ${(report.usage.inputTokens + report.usage.outputTokens).toLocaleString()}
+
+## Result
+${report.summary}
+`;
+        await fs.writeFile(reportMdPath, reportMd);
+
         await updateProgress(instance.instancePath, {
           status: 'COMPLETED',
           phase: 'Done',
@@ -296,7 +583,7 @@ Begin implementing the requested changes now.`;
           timestamp: new Date().toISOString(),
           logs: [],
         });
-        resolve();
+        resolve(report);
       } else {
         await updateProgress(instance.instancePath, {
           status: 'FAILED',

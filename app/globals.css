@@ -44,3 +44,20 @@ body {
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
+
+/* Progress slide animation for Ralph execution */
+@keyframes progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(250%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.animate-progress-slide {
+  animation: progress-slide 2s ease-in-out infinite;
+}

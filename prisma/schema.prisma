@@ -125,15 +125,18 @@ model SystemLog {
 }
 
 model ApiUsageLog {
-  id           String   @id @default(cuid())
-  type         String   // prd_generation, ralph_execution, etc.
-  ticketId     String?
-  ticketTitle  String?
-  projectId    String?
-  tokensUsed   Int?
-  cost         Float?
-  model        String?
-  duration     Int?     // milliseconds
-  metadata     String?  @db.Text
-  createdAt    DateTime @default(now())
+  id            String   @id @default(cuid())
+  type          String   // PRD_GENERATION, RALPH_EXECUTION, etc.
+  ticketId      String?
+  ticketTitle   String?
+  projectId     String?
+  projectName   String?
+  inputTokens   Int?
+  outputTokens  Int?
+  estimatedCost Float?
+  logSize       Int?     // Size of log output in bytes
+  duration      Int?     // seconds
+  status        String?  // SUCCESS, FAILED
+  errorMessage  String?  @db.Text
+  createdAt     DateTime @default(now())
 }

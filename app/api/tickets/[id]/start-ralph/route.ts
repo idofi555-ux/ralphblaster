@@ -34,6 +34,12 @@ export async function POST(
       );
     }
 
+    // Get settings for model configuration
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'global' },
+    });
+    const model = settings?.claudeModel || 'claude-sonnet-4-5-20250514';
+
     const ticket = await prisma.ticket.findUnique({
       where: { id },
       include: { project: true },
@@ -86,8 +92,13 @@ export async function POST(
       try {
         const currentTicket = await prisma.ticket.findUnique({
           where: { id },
-          select: { ralphLogs: true },
+          select: { ralphLogs: true, ralphStatus: true },
         });
+
+        // Don't update if already completed/failed (avoid race condition)
+        if (currentTicket?.ralphStatus === 'COMPLETED' || currentTicket?.ralphStatus === 'FAILED') {
+          return;
+        }
 
         const currentLogs = currentTicket?.ralphLogs || '';
         // Keep logs under 50KB to avoid DB issues
@@ -105,7 +116,7 @@ export async function POST(
       } catch (err) {
         console.error('Failed to update logs:', err);
       }
-    })
+    }, model)
       .then(async () => {
         await prisma.ticket.update({
           where: { id },

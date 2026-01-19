@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import PRDViewer from './PRDViewer';
+import PRDGenerator from './PRDGenerator';
 import RalphProgress from './RalphProgress';
 import TestingPanel from './TestingPanel';
 import { useToast } from '@/contexts/ToastContext';
@@ -26,31 +27,25 @@ export default function TicketDetailModal({ ticket, onClose, onUpdated }: Ticket
     priority: ticket.priority,
   });
   const [isGeneratingPRD, setIsGeneratingPRD] = useState(false);
+  const [showPRDGenerator, setShowPRDGenerator] = useState(false);
   const [isStartingRalph, setIsStartingRalph] = useState(false);
+  const [isCancellingRalph, setIsCancellingRalph] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const generatePRD = async () => {
-    setIsGeneratingPRD(true);
-    try {
-      const res = await fetch(`/api/tickets/${ticket.id}/generate-prd`, {
-        method: 'POST',
-      });
-      if (res.ok) {
-        addToast('PRD generated successfully!', 'success');
-        onUpdated();
-      } else {
-        const data = await res.json();
-        const errorMsg = data.details || data.error || 'Failed to generate PRD';
-        addToast(errorMsg, 'error', 6000);
-      }
-    } catch (error) {
-      console.error('Failed to generate PRD:', error);
-      addToast('Failed to generate PRD. Check your network connection.', 'error');
-    } finally {
-      setIsGeneratingPRD(false);
-    }
+  const generatePRD = () => {
+    setShowPRDGenerator(true);
+  };
+
+  const handlePRDComplete = () => {
+    setShowPRDGenerator(false);
+    addToast('PRD generated successfully!', 'success');
+    onUpdated();
+  };
+
+  const handlePRDCancel = () => {
+    setShowPRDGenerator(false);
   };
 
   const startRalph = async () => {
@@ -72,6 +67,48 @@ export default function TicketDetailModal({ ticket, onClose, onUpdated }: Ticket
       addToast('Failed to start Ralph', 'error');
     } finally {
       setIsStartingRalph(false);
+    }
+  };
+
+  const cancelRalph = async () => {
+    setIsCancellingRalph(true);
+    try {
+      const res = await fetch(`/api/tickets/${ticket.id}/cancel-ralph`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        addToast('Ralph cancelled', 'info');
+        onUpdated();
+      } else {
+        addToast('Failed to cancel Ralph', 'error');
+      }
+    } catch (error) {
+      console.error('Failed to cancel Ralph:', error);
+      addToast('Failed to cancel Ralph', 'error');
+    } finally {
+      setIsCancellingRalph(false);
+    }
+  };
+
+  const restartRalph = async () => {
+    // Reset Ralph status first
+    try {
+      await fetch(`/api/tickets/${ticket.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ralphStatus: null,
+          ralphInstancePath: null,
+          ralphStartedAt: null,
+          ralphCompletedAt: null,
+        }),
+      });
+      onUpdated();
+      // Then start again
+      setTimeout(() => startRalph(), 500);
+    } catch (error) {
+      console.error('Failed to restart Ralph:', error);
+      addToast('Failed to restart Ralph', 'error');
     }
   };
 
@@ -252,17 +289,22 @@ export default function TicketDetailModal({ ticket, onClose, onUpdated }: Ticket
           <div>
             <div className="flex justify-between items-center mb-2">
               <h3 className="font-semibold text-gray-700">Product Requirements Document</h3>
-              {!ticket.prdContent && (
+              {!ticket.prdContent && !showPRDGenerator && (
                 <button
                   onClick={generatePRD}
-                  disabled={isGeneratingPRD}
-                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50 transition-colors text-sm font-medium"
+                  className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium"
                 >
-                  {isGeneratingPRD ? 'Generating...' : 'Generate PRD'}
+                  Generate PRD
                 </button>
               )}
             </div>
-            {ticket.prdContent ? (
+            {showPRDGenerator ? (
+              <PRDGenerator
+                ticketId={ticket.id}
+                onComplete={handlePRDComplete}
+                onCancel={handlePRDCancel}
+              />
+            ) : ticket.prdContent ? (
               <PRDViewer
                 content={ticket.prdContent}
                 onRegenerate={generatePRD}
@@ -280,22 +322,49 @@ export default function TicketDetailModal({ ticket, onClose, onUpdated }: Ticket
           </div>
 
           {/* Ralph Execution Section */}
-          {ticket.prdContent && (
+          {ticket.prdContent && !showPRDGenerator && (
             <div>
               <div className="flex justify-between items-center mb-2">
                 <h3 className="font-semibold text-gray-700">Ralph Execution</h3>
-                {!ticket.ralphStatus && (
-                  <button
-                    onClick={startRalph}
-                    disabled={isStartingRalph}
-                    className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors text-sm font-medium"
-                  >
-                    {isStartingRalph ? 'Starting...' : 'Start Ralph'}
-                  </button>
-                )}
+                <div className="flex gap-2">
+                  {/* Cancel button - show when running */}
+                  {(ticket.ralphStatus === 'RUNNING' || ticket.ralphStatus === 'LAUNCHING') && (
+                    <button
+                      onClick={cancelRalph}
+                      disabled={isCancellingRalph}
+                      className="px-3 py-1.5 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 disabled:opacity-50 transition-colors text-sm font-medium"
+                    >
+                      {isCancellingRalph ? 'Cancelling...' : 'Cancel'}
+                    </button>
+                  )}
+                  {/* Re-run button - show when completed or failed */}
+                  {(ticket.ralphStatus === 'COMPLETED' || ticket.ralphStatus === 'FAILED') && (
+                    <button
+                      onClick={restartRalph}
+                      className="px-3 py-1.5 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors text-sm font-medium"
+                    >
+                      Re-run Ralph
+                    </button>
+                  )}
+                  {/* Start button - show when not started */}
+                  {!ticket.ralphStatus && (
+                    <button
+                      onClick={startRalph}
+                      disabled={isStartingRalph}
+                      className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 transition-colors text-sm font-medium"
+                    >
+                      {isStartingRalph ? 'Starting...' : 'Start Ralph'}
+                    </button>
+                  )}
+                </div>
               </div>
               {ticket.ralphStatus ? (
-                <RalphProgress ticketId={ticket.id} status={ticket.ralphStatus} />
+                <RalphProgress
+                  ticketId={ticket.id}
+                  status={ticket.ralphStatus}
+                  onCancel={cancelRalph}
+                  onRestart={restartRalph}
+                />
               ) : (
                 <div className="bg-blue-50 rounded-lg p-6 text-center">
                   <div className="text-4xl mb-2">🤖</div>
